@@ -11,6 +11,7 @@ from urllib import urlencode
 import urlparse
 
 import requests
+import grequests
 
 
 class EventFilter(object):
@@ -253,7 +254,7 @@ class CredentialsV2(object):
 
 class BoxClient(object):
 
-    def __init__(self, credentials):
+    def __init__(self, credentials, grequests_pool=None):
         """
         Args:
             - credentials: an access_token string, or an instance of CredentialsV1/CredentialsV2
@@ -262,6 +263,9 @@ class BoxClient(object):
             credentials = CredentialsV2(credentials)
 
         self.credentials = credentials
+
+        # Use a pool for requests if given one.
+        self.grequests_pool = grequests_pool
 
     def _check_for_errors(self, response):
         if not response.ok:
@@ -302,7 +306,11 @@ class BoxClient(object):
 
         url = 'https://%s.box.com/2.0/%s' % (endpoint, resource)
 
-        response = requests.request(method, url, params=params, data=data, headers=headers, **kwargs)
+        req = grequests.request(method, url, params=params, data=data, headers=headers, **kwargs)
+        job = grequests.send(req, self.grequests_pool)
+        # Block until request finishes, yielding control to other greenlets.
+        job.join()
+        response = job.value
 
         if response.status_code == UNAUTHORIZED and try_refresh and self.credentials.refresh():
             return self._request(method, resource, params, data, headers, try_refresh=False, **kwargs)
